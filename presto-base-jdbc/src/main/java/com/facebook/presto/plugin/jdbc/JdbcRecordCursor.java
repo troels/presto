@@ -15,6 +15,9 @@ package com.facebook.presto.plugin.jdbc;
 
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.RecordCursor;
+import com.facebook.presto.spi.block.BlockBuilder;
+import com.facebook.presto.spi.block.BlockBuilderStatus;
+import com.facebook.presto.spi.type.ArrayType;
 import com.facebook.presto.spi.type.BigintType;
 import com.facebook.presto.spi.type.CharType;
 import com.facebook.presto.spi.type.DateType;
@@ -34,6 +37,7 @@ import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import org.joda.time.chrono.ISOChronology;
 
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -142,41 +146,9 @@ public class JdbcRecordCursor
     {
         checkState(!closed, "cursor is closed");
         try {
-            Type type = getType(field);
-            if (type.equals(TinyintType.TINYINT)) {
-                return (long) resultSet.getByte(field + 1);
-            }
-            if (type.equals(SmallintType.SMALLINT)) {
-                return (long) resultSet.getShort(field + 1);
-            }
-            if (type.equals(IntegerType.INTEGER)) {
-                return (long) resultSet.getInt(field + 1);
-            }
-            if (type.equals(RealType.REAL)) {
-                return (long) floatToRawIntBits(resultSet.getFloat(field + 1));
-            }
-            if (type.equals(BigintType.BIGINT)) {
-                return resultSet.getLong(field + 1);
-            }
-            if (type.equals(DateType.DATE)) {
-                // JDBC returns a date using a timestamp at midnight in the JVM timezone
-                long localMillis = resultSet.getDate(field + 1).getTime();
-                // Convert it to a midnight in UTC
-                long utcMillis = ISOChronology.getInstance().getZone().getMillisKeepLocal(UTC, localMillis);
-                // convert to days
-                return TimeUnit.MILLISECONDS.toDays(utcMillis);
-            }
-            if (type.equals(TimeType.TIME)) {
-                Time time = resultSet.getTime(field + 1);
-                return UTC_CHRONOLOGY.millisOfDay().get(time.getTime());
-            }
-            if (type.equals(TimestampType.TIMESTAMP)) {
-                Timestamp timestamp = resultSet.getTimestamp(field + 1);
-                return timestamp.getTime();
-            }
-            throw new PrestoException(GENERIC_INTERNAL_ERROR, "Unhandled type for long: " + type.getTypeSignature());
+            return getLongFromResultSet(getType(field), resultSet, field + 1);
         }
-        catch (SQLException | RuntimeException e) {
+        catch (RuntimeException e) {
             throw handleSqlException(e);
         }
     }
@@ -198,19 +170,9 @@ public class JdbcRecordCursor
     {
         checkState(!closed, "cursor is closed");
         try {
-            Type type = getType(field);
-            if (type instanceof VarcharType) {
-                return utf8Slice(resultSet.getString(field + 1));
-            }
-            if (type instanceof CharType) {
-                return utf8Slice(CharMatcher.is(' ').trimTrailingFrom(resultSet.getString(field + 1)));
-            }
-            if (type.equals(VarbinaryType.VARBINARY)) {
-                return wrappedBuffer(resultSet.getBytes(field + 1));
-            }
-            throw new PrestoException(GENERIC_INTERNAL_ERROR, "Unhandled type for slice: " + type.getTypeSignature());
+            return getSliceFromResultSet(getType(field), resultSet, field + 1);
         }
-        catch (SQLException | RuntimeException e) {
+        catch (RuntimeException e) {
             throw handleSqlException(e);
         }
     }
@@ -218,7 +180,68 @@ public class JdbcRecordCursor
     @Override
     public Object getObject(int field)
     {
-        throw new UnsupportedOperationException();
+        checkState(!closed, "cursor is closed");
+        try {
+            final ArrayType type = (ArrayType) getType(field);
+            final Type elementType = type.getElementType();
+            Array array = resultSet.getArray(field + 1);
+            BlockBuilder builder = elementType.createBlockBuilder(new BlockBuilderStatus(), 0);
+            ResultSet arrayResultSet = array.getResultSet();
+
+            if (elementType.getJavaType() == long.class) {
+                while (arrayResultSet.next()) {
+                    arrayResultSet.getObject(2);
+                    if (arrayResultSet.wasNull()) {
+                        builder.appendNull();
+                    }
+                    else {
+                        elementType.writeLong(builder, getLongFromResultSet(elementType, arrayResultSet, 2));
+                    }
+                }
+            }
+            else if (elementType.getJavaType() == double.class) {
+                while (arrayResultSet.next()) {
+                    arrayResultSet.getObject(2);
+                    if (arrayResultSet.wasNull()) {
+                        builder.appendNull();
+                    }
+                    else {
+                        elementType.writeDouble(builder, arrayResultSet.getDouble(2));
+                    }
+                }
+            }
+            else if (elementType.getJavaType() == boolean.class) {
+                while (arrayResultSet.next()) {
+                    arrayResultSet.getObject(2);
+                    if (arrayResultSet.wasNull()) {
+                        builder.appendNull();
+                    }
+                    else {
+                        elementType.writeBoolean(builder, arrayResultSet.getBoolean(2));
+                    }
+                }
+            }
+            else if (elementType.getJavaType() == Slice.class) {
+                while (arrayResultSet.next()) {
+                    arrayResultSet.getObject(2);
+                    if (arrayResultSet.wasNull()) {
+                        builder.appendNull();
+                    }
+                    else {
+                        elementType.writeSlice(builder, getSliceFromResultSet(elementType, arrayResultSet, 2));
+                    }
+                }
+            }
+            else {
+                throw new PrestoException(GENERIC_INTERNAL_ERROR,
+                        "Unhandled array type: " + type.getTypeSignature());
+            }
+
+            return builder.build();
+        }
+        catch (SQLException | RuntimeException e) {
+            throw handleSqlException(e);
+        }
     }
 
     @Override
@@ -234,6 +257,66 @@ public class JdbcRecordCursor
             resultSet.getObject(field + 1);
 
             return resultSet.wasNull();
+        }
+        catch (SQLException | RuntimeException e) {
+            throw handleSqlException(e);
+        }
+    }
+
+    private Slice getSliceFromResultSet(Type type, ResultSet set, int column)
+    {
+        try {
+            if (type instanceof VarcharType) {
+                return utf8Slice(set.getString(column));
+            }
+            if (type instanceof CharType) {
+                return utf8Slice(CharMatcher.is(' ').trimTrailingFrom(set.getString(column)));
+            }
+            if (type.equals(VarbinaryType.VARBINARY)) {
+                return wrappedBuffer(set.getBytes(column));
+            }
+            throw new PrestoException(GENERIC_INTERNAL_ERROR, "Unhandled type for slice: " + type.getTypeSignature());
+        }
+        catch (SQLException e) {
+            throw handleSqlException(e);
+        }
+    }
+
+    private long getLongFromResultSet(Type type, ResultSet resultSet, int column)
+    {
+        try {
+            if (type.equals(TinyintType.TINYINT)) {
+                return (long) resultSet.getByte(column);
+            }
+            if (type.equals(SmallintType.SMALLINT)) {
+                return (long) resultSet.getShort(column);
+            }
+            if (type.equals(IntegerType.INTEGER)) {
+                return (long) resultSet.getInt(column);
+            }
+            if (type.equals(RealType.REAL)) {
+                return (long) floatToRawIntBits(resultSet.getFloat(column));
+            }
+            if (type.equals(BigintType.BIGINT)) {
+                return resultSet.getLong(column);
+            }
+            if (type.equals(DateType.DATE)) {
+                // JDBC returns a date using a timestamp at midnight in the JVM timezone
+                long localMillis = resultSet.getDate(column).getTime();
+                // Convert it to a midnight in UTC
+                long utcMillis = ISOChronology.getInstance().getZone().getMillisKeepLocal(UTC, localMillis);
+                // convert to days
+                return TimeUnit.MILLISECONDS.toDays(utcMillis);
+            }
+            if (type.equals(TimeType.TIME)) {
+                Time time = resultSet.getTime(column);
+                return UTC_CHRONOLOGY.millisOfDay().get(time.getTime());
+            }
+            if (type.equals(TimestampType.TIMESTAMP)) {
+                Timestamp timestamp = resultSet.getTimestamp(column);
+                return timestamp.getTime();
+            }
+            throw new PrestoException(GENERIC_INTERNAL_ERROR, "Unhandled type for long: " + type.getTypeSignature());
         }
         catch (SQLException | RuntimeException e) {
             throw handleSqlException(e);

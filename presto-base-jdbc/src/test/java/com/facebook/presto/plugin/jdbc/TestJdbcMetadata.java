@@ -18,6 +18,10 @@ import com.facebook.presto.spi.ConnectorTableMetadata;
 import com.facebook.presto.spi.PrestoException;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.TableNotFoundException;
+import com.facebook.presto.spi.type.ArrayType;
+import com.facebook.presto.spi.type.BooleanType;
+import com.facebook.presto.spi.type.DoubleType;
+import com.facebook.presto.spi.type.IntegerType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -81,7 +85,7 @@ public class TestJdbcMetadata
     {
         // known table
         assertEquals(metadata.getColumnHandles(SESSION, tableHandle), ImmutableMap.of(
-                "text", new JdbcColumnHandle(CONNECTOR_ID, "TEXT", VARCHAR),
+                "text", new JdbcColumnHandle(CONNECTOR_ID, "TEXT", createVarcharType(255)),
                 "text_short", new JdbcColumnHandle(CONNECTOR_ID, "TEXT_SHORT", createVarcharType(32)),
                 "value", new JdbcColumnHandle(CONNECTOR_ID, "VALUE", BIGINT)));
 
@@ -107,16 +111,28 @@ public class TestJdbcMetadata
         ConnectorTableMetadata tableMetadata = metadata.getTableMetadata(SESSION, tableHandle);
         assertEquals(tableMetadata.getTable(), new SchemaTableName("example", "numbers"));
         assertEquals(tableMetadata.getColumns(), ImmutableList.of(
-                new ColumnMetadata("text", VARCHAR),
+                new ColumnMetadata("text", createVarcharType(255)),
                 new ColumnMetadata("text_short", createVarcharType(32)),
                 new ColumnMetadata("value", BIGINT)));
+
+        // Table with arrays
+        JdbcTableHandle arrayTableHandle = metadata.getTableHandle(SESSION,
+                new SchemaTableName("exa_ple", "table_with_array_col"));
+        ConnectorTableMetadata arrayTableMetadata = metadata.getTableMetadata(SESSION, arrayTableHandle);
+        assertEquals(arrayTableMetadata.getTable(),
+                new SchemaTableName("exa_ple", "table_with_array_col"));
+        assertEquals(arrayTableMetadata.getColumns(), ImmutableList.of(
+                new ColumnMetadata("col1", new ArrayType(IntegerType.INTEGER)),
+                new ColumnMetadata("col2", new ArrayType(createVarcharType(255))),
+                new ColumnMetadata("col3", new ArrayType(DoubleType.DOUBLE)),
+                new ColumnMetadata("col4", new ArrayType(BooleanType.BOOLEAN))));
 
         // escaping name patterns
         JdbcTableHandle specialTableHandle = metadata.getTableHandle(SESSION, new SchemaTableName("exa_ple", "num_ers"));
         ConnectorTableMetadata specialTableMetadata = metadata.getTableMetadata(SESSION, specialTableHandle);
         assertEquals(specialTableMetadata.getTable(), new SchemaTableName("exa_ple", "num_ers"));
         assertEquals(specialTableMetadata.getColumns(), ImmutableList.of(
-                new ColumnMetadata("te_t", VARCHAR),
+                new ColumnMetadata("te_t", createVarcharType(255)),
                 new ColumnMetadata("va%ue", BIGINT)));
 
         // unknown tables should produce null
@@ -146,7 +162,8 @@ public class TestJdbcMetadata
                 new SchemaTableName("tpch", "orders"),
                 new SchemaTableName("tpch", "lineitem"),
                 new SchemaTableName("exa_ple", "table_with_float_col"),
-                new SchemaTableName("exa_ple", "num_ers")));
+                new SchemaTableName("exa_ple", "num_ers"),
+                new SchemaTableName("exa_ple", "table_with_array_col")));
 
         // specific schema
         assertEquals(ImmutableSet.copyOf(metadata.listTables(SESSION, "example")), ImmutableSet.of(
@@ -158,6 +175,7 @@ public class TestJdbcMetadata
                 new SchemaTableName("tpch", "lineitem")));
         assertEquals(ImmutableSet.copyOf(metadata.listTables(SESSION, "exa_ple")), ImmutableSet.of(
                 new SchemaTableName("exa_ple", "num_ers"),
+                new SchemaTableName("exa_ple", "table_with_array_col"),
                 new SchemaTableName("exa_ple", "table_with_float_col")));
 
         // unknown schema
@@ -177,7 +195,7 @@ public class TestJdbcMetadata
     {
         metadata.createTable(SESSION, new ConnectorTableMetadata(
                 new SchemaTableName("example", "foo"),
-                ImmutableList.of(new ColumnMetadata("text", VARCHAR))));
+                ImmutableList.of(new ColumnMetadata("text", createVarcharType(255)))));
     }
 
     @Test

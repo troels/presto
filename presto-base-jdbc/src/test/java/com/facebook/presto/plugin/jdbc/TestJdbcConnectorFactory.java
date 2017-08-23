@@ -24,9 +24,9 @@ public class TestJdbcConnectorFactory
     {
         JdbcConnectorFactory connectorFactory = new JdbcConnectorFactory(
                 "test",
-                new TestingH2JdbcModule(),
+                new TestingHsqldbJdbcModule(),
                 getClass().getClassLoader());
 
-        connectorFactory.create("test", TestingH2JdbcModule.createProperties(), new TestingConnectorContext());
+        connectorFactory.create("test", TestingHsqldbJdbcModule.createProperties(), new TestingConnectorContext());
     }
 }

@@ -207,8 +207,8 @@ public class TestJdbcQueryBuilder
             ImmutableSet.Builder<Long> longBuilder = ImmutableSet.builder();
             ImmutableSet.Builder<Float> floatBuilder = ImmutableSet.builder();
             while (resultSet.next()) {
-                longBuilder.add((Long) resultSet.getObject("col_0"));
-                floatBuilder.add((Float) resultSet.getObject("col_10"));
+                longBuilder.add(resultSet.getLong("col_0"));
+                floatBuilder.add(resultSet.getFloat("col_10"));
             }
             assertEquals(longBuilder.build(), ImmutableSet.of(0L, 14L));
             assertEquals(floatBuilder.build(), ImmutableSet.of(100.0f, 114.0f));

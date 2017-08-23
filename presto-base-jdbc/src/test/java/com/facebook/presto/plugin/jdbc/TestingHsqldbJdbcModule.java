@@ -17,14 +17,13 @@ import com.google.common.collect.ImmutableMap;
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Provides;
-import org.h2.Driver;
 
 import java.util.Map;
 
 import static io.airlift.configuration.ConfigBinder.configBinder;
 import static java.lang.String.format;
 
-class TestingH2JdbcModule
+class TestingHsqldbJdbcModule
         implements Module
 {
     @Override
@@ -36,13 +35,13 @@ class TestingH2JdbcModule
     @Provides
     public JdbcClient provideJdbcClient(JdbcConnectorId id, BaseJdbcConfig config)
     {
-        return new BaseJdbcClient(id, config, "\"", new Driver());
+        return new TestingHsqldbJdbcClient(id, config, "\"");
     }
 
     public static Map<String, String> createProperties()
     {
         return ImmutableMap.<String, String>builder()
-                .put("connection-url", format("jdbc:h2:mem:test%s;DB_CLOSE_DELAY=-1", System.nanoTime()))
+                .put("connection-url", format("jdbc:hsqldb:mem:test%s;DB_CLOSE_DELAY=-1", System.nanoTime()))
                 .build();
     }
 }

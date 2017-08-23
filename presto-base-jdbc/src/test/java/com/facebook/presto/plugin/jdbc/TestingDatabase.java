@@ -17,7 +17,6 @@ import com.facebook.presto.spi.ConnectorSplitSource;
 import com.facebook.presto.spi.SchemaTableName;
 import com.facebook.presto.spi.predicate.TupleDomain;
 import com.google.common.collect.ImmutableMap;
-import org.h2.Driver;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -40,17 +39,16 @@ final class TestingDatabase
     public TestingDatabase()
             throws SQLException
     {
-        String connectionUrl = "jdbc:h2:mem:test" + System.nanoTime();
-        jdbcClient = new BaseJdbcClient(
+        String connectionUrl = "jdbc:hsqldb:mem:test" + System.nanoTime();
+        jdbcClient = new TestingHsqldbJdbcClient(
                 new JdbcConnectorId(CONNECTOR_ID),
                 new BaseJdbcConfig().setConnectionUrl(connectionUrl),
-                "\"",
-                new Driver());
+                "\"");
 
         connection = DriverManager.getConnection(connectionUrl);
         connection.createStatement().execute("CREATE SCHEMA example");
 
-        connection.createStatement().execute("CREATE TABLE example.numbers(text varchar primary key, text_short varchar(32), value bigint)");
+        connection.createStatement().execute("CREATE TABLE example.numbers(text varchar(255) primary key, text_short varchar(32), value bigint)");
         connection.createStatement().execute("INSERT INTO example.numbers(text, text_short, value) VALUES " +
                 "('one', 'one', 1)," +
                 "('two', 'two', 2)," +
@@ -59,15 +57,23 @@ final class TestingDatabase
                 "('eleven', 'eleven', 11)," +
                 "('twelve', 'twelve', 12)" +
                 "");
-        connection.createStatement().execute("CREATE TABLE example.view_source(id varchar primary key)");
+        connection.createStatement().execute("CREATE TABLE example.view_source(id varchar(255) primary key)");
         connection.createStatement().execute("CREATE VIEW example.view AS SELECT id FROM example.view_source");
         connection.createStatement().execute("CREATE SCHEMA tpch");
         connection.createStatement().execute("CREATE TABLE tpch.orders(orderkey bigint primary key, custkey bigint)");
         connection.createStatement().execute("CREATE TABLE tpch.lineitem(orderkey bigint primary key, partkey bigint)");
 
         connection.createStatement().execute("CREATE SCHEMA exa_ple");
-        connection.createStatement().execute("CREATE TABLE exa_ple.num_ers(te_t varchar primary key, \"VA%UE\" bigint)");
+        connection.createStatement().execute("CREATE TABLE exa_ple.num_ers(te_t varchar(255) primary key, \"VA%UE\" bigint)");
         connection.createStatement().execute("CREATE TABLE exa_ple.table_with_float_col(col1 bigint, col2 double, col3 float, col4 real)");
+
+        connection.createStatement().execute("CREATE TABLE exa_ple.table_with_array_col " +
+                "(col1 int array, col2 varchar(255) array, col3 float array, col4 boolean array)");
+        connection.createStatement().execute("INSERT INTO exa_ple.table_with_array_col (col1, col2, col3, col4) " +
+                " VALUES " +
+                "( ARRAY[1, 2, 3], ARRAY['one', 'two', 'three'], ARRAY[1.0, 2.0, 3.0], ARRAY[false, true, false] ), " +
+                "( ARRAY[2, 3, 4], ARRAY['two', 'three', 'four'], ARRAY[2.0, 3.0, 4.0], ARRAY[false, true, false] )" +
+                "");
 
         connection.commit();
     }

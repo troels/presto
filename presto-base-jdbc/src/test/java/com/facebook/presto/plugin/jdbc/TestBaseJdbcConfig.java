@@ -34,13 +34,13 @@ public class TestBaseJdbcConfig
     public void testExplicitPropertyMappings()
     {
         Map<String, String> properties = new ImmutableMap.Builder<String, String>()
-                .put("connection-url", "jdbc:h2:mem:config")
+                .put("connection-url", "jdbc:hsqldb:mem:config")
                 .put("connection-user", "user")
                 .put("connection-password", "password")
                 .build();
 
         BaseJdbcConfig expected = new BaseJdbcConfig()
-                .setConnectionUrl("jdbc:h2:mem:config")
+                .setConnectionUrl("jdbc:hsqldb:mem:config")
                 .setConnectionUser("user")
                 .setConnectionPassword("password");
 
