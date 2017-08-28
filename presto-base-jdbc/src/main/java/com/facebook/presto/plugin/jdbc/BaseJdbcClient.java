@@ -434,6 +434,12 @@ public class BaseJdbcClient
         return connection.prepareStatement(sql);
     }
 
+    @Override
+    public JdbcStatementWriter getStatementWriter()
+    {
+        return new BaseJdbcStatementWriter(this);
+    }
+
     protected ResultSet getTables(Connection connection, String schemaName, String tableName)
             throws SQLException
     {

@@ -18,23 +18,17 @@ import com.facebook.presto.spi.RecordSink;
 import com.facebook.presto.spi.type.Type;
 import com.google.common.collect.ImmutableList;
 import io.airlift.slice.Slice;
-import org.joda.time.DateTimeZone;
-import org.joda.time.chrono.ISOChronology;
 
 import java.sql.Connection;
-import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.SQLNonTransientException;
 import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import static com.facebook.presto.plugin.jdbc.JdbcErrorCode.JDBC_ERROR;
 import static com.facebook.presto.plugin.jdbc.JdbcErrorCode.JDBC_NON_TRANSIENT_ERROR;
-import static com.facebook.presto.spi.type.DateType.DATE;
 import static com.google.common.base.Preconditions.checkState;
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class JdbcRecordSink
         implements RecordSink
@@ -44,6 +38,8 @@ public class JdbcRecordSink
 
     private final int fieldCount;
     private final List<Type> columnTypes;
+    private final JdbcStatementWriter statementWriter;
+    private final JdbcStatementParameterSetter statementParamSetter;
     private int field = -1;
     private int batchSize;
 
@@ -66,6 +62,8 @@ public class JdbcRecordSink
 
         fieldCount = handle.getColumnNames().size();
         columnTypes = handle.getColumnTypes();
+        statementWriter = jdbcClient.getStatementWriter();
+        statementParamSetter = new JdbcStatementParameterSetter(statement);
     }
 
     @Override
@@ -102,7 +100,8 @@ public class JdbcRecordSink
     public void appendNull()
     {
         try {
-            statement.setObject(next(), null);
+            Type type = getType(field);
+            statementWriter.setNull(statementParamSetter, next(), type);
         }
         catch (SQLException e) {
             throw new PrestoException(JDBC_ERROR, e);
@@ -113,7 +112,8 @@ public class JdbcRecordSink
     public void appendBoolean(boolean value)
     {
         try {
-            statement.setBoolean(next(), value);
+            Type type = getType(field);
+            statementWriter.setBoolean(statementParamSetter, next(), type, value);
         }
         catch (SQLException e) {
             throw new PrestoException(JDBC_ERROR, e);
@@ -124,15 +124,8 @@ public class JdbcRecordSink
     public void appendLong(long value)
     {
         try {
-            if (DATE.equals(columnTypes.get(field))) {
-                // convert to midnight in default time zone
-                long utcMillis = TimeUnit.DAYS.toMillis(value);
-                long localMillis = ISOChronology.getInstanceUTC().getZone().getMillisKeepLocal(DateTimeZone.getDefault(), utcMillis);
-                statement.setDate(next(), new Date(localMillis));
-            }
-            else {
-                statement.setLong(next(), value);
-            }
+            Type type = getType(field);
+            statementWriter.setLong(statementParamSetter, next(), type, value);
         }
         catch (SQLException e) {
             throw new PrestoException(JDBC_ERROR, e);
@@ -143,7 +136,8 @@ public class JdbcRecordSink
     public void appendDouble(double value)
     {
         try {
-            statement.setDouble(next(), value);
+            Type type = getType(field);
+            statementWriter.setDouble(statementParamSetter, next(), type, value);
         }
         catch (SQLException e) {
             throw new PrestoException(JDBC_ERROR, e);
@@ -154,7 +148,8 @@ public class JdbcRecordSink
     public void appendString(byte[] value)
     {
         try {
-            statement.setString(next(), new String(value, UTF_8));
+            Type type = getType(field);
+            statementWriter.setString(statementParamSetter, next(), type, value);
         }
         catch (SQLException e) {
             throw new PrestoException(JDBC_ERROR, e);
@@ -164,7 +159,13 @@ public class JdbcRecordSink
     @Override
     public void appendObject(Object value)
     {
-        throw new UnsupportedOperationException();
+        try {
+            Type type = getType(field);
+            statementWriter.setObject(statementParamSetter, next(), type, value);
+        }
+        catch (SQLException e) {
+            throw new PrestoException(JDBC_ERROR, e);
+        }
     }
 
     @Override
@@ -213,5 +214,10 @@ public class JdbcRecordSink
         checkState(field < fieldCount, "all fields already set");
         field++;
         return field;
+    }
+
+    private Type getType(int field)
+    {
+        return getColumnTypes().get(field);
     }
 }
